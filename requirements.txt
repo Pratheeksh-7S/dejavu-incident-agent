@@ -1,0 +1,6 @@
+streamlit
+anthropic
+hindsight-client
+python-dotenv
+plotly
+streamlit-lottie
