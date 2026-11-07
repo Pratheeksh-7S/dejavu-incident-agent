@@ -1,5 +1,5 @@
 streamlit
-anthropic
+groq
 hindsight-client
 python-dotenv
 plotly
