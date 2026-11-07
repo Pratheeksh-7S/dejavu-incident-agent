@@ -89,3 +89,37 @@ def test_confidence_never_exceeds_98_even_if_model_says_100(patch_incidents):
     patch_incidents(incs)
     conf, _ = agent.calibrate(answer_for(incs, 100))
     assert conf <= 98
+
+
+def test_evidence_ids_written_as_text_are_kept():
+    evidence = [{"incident_id": "12", "why": "a"}, {"incident_id": "#7", "why": "b"}, {"incident_id": 3}]
+    cleaned = agent.clean_evidence(evidence, recalled_ids={3, 7, 12})
+    assert [e["incident_id"] for e in cleaned] == [12, 7, 3]
+    assert cleaned[0]["why"] == "a"
+
+
+def test_evidence_not_recalled_or_repeated_is_dropped():
+    evidence = [{"incident_id": 12}, {"incident_id": 12}, {"incident_id": 99}, "junk", {"incident_id": "abc"}]
+    cleaned = agent.clean_evidence(evidence, recalled_ids={12})
+    assert [e["incident_id"] for e in cleaned] == [12]
+
+
+def test_repeated_citation_cannot_inflate_confidence(patch_incidents):
+    incs = make_incidents(1)
+    patch_incidents(incs)
+    answer = {"confidence": 99, "evidence": agent.clean_evidence([{"incident_id": 100}] * 4, {100})}
+    conf, basis = agent.calibrate(answer)
+    assert 55 <= conf <= 74
+    assert basis.startswith("1 of 1")
+
+
+@pytest.mark.parametrize("value, expected", [(5, 5), ("12", 12), (7.9, 7), ("10-15", 10), ("90%", 90), (None, 5), ("soon", 5)])
+def test_first_number(value, expected):
+    assert agent.first_number(value, default=5) == expected
+
+
+@pytest.mark.parametrize("text", ["not json", "", None, "[1, 2]"])
+def test_unreadable_model_reply_becomes_an_unsure_answer(text):
+    answer = agent.parse_answer(text)
+    assert answer["confidence"] == 0
+    assert answer["evidence"] == []

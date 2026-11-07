@@ -5,6 +5,7 @@ reasons over them -> structured answer the UI can show.
 """
 import json
 import os
+import re
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -14,7 +15,7 @@ from memory import load_incidents, recall_similar
 load_dotenv()
 
 MODEL = "openai/gpt-oss-120b"
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = Groq(api_key=os.getenv("GROQ_API_KEY"), timeout=45)  # never hang the demo
 
 SYSTEM_PROMPT = """You are DejaVu, an incident-response assistant with long-term memory
 of past production incidents. You receive a NEW error plus PAST incidents recalled
@@ -73,13 +74,48 @@ def analyse(error_text, use_memory=True):
         response_format={"type": "json_object"},
         temperature=0.2,
     )
-    answer = json.loads(reply.choices[0].message.content)
+    answer = parse_answer(reply.choices[0].message.content)
 
-    # Safety net: drop any incident the model cited that memory did not recall.
+    # Safety net: keep only incidents that memory really recalled, each cited once.
     recalled_ids = {m["incident_id"] for m in matches}
-    answer["evidence"] = [e for e in answer.get("evidence", []) if e.get("incident_id") in recalled_ids]
+    answer["evidence"] = clean_evidence(answer.get("evidence"), recalled_ids)
+    answer["estimated_minutes"] = first_number(answer.get("estimated_minutes"), default=5)
     answer["confidence"], answer["confidence_basis"] = calibrate(answer)
     return answer, matches
+
+
+def parse_answer(text):
+    """Read the model's JSON reply. A broken reply becomes an honest 'unsure' answer."""
+    try:
+        answer = json.loads(text or "")
+    except json.JSONDecodeError:
+        answer = None
+    if not isinstance(answer, dict):
+        return {"probable_cause": "The model did not return a readable answer. Please try again.",
+                "confidence": 0, "evidence": [], "fix_steps": [], "summary": "No answer, try again"}
+    return answer
+
+
+def clean_evidence(evidence, recalled_ids):
+    """Models sometimes write ids as "12" or "#12", or cite one twice. Normalise them."""
+    cleaned, seen = [], set()
+    for e in evidence or []:
+        if not isinstance(e, dict):
+            continue
+        raw = str(e.get("incident_id", "")).strip().lstrip("#")
+        if not raw.isdigit():
+            continue
+        iid = int(raw)
+        if iid in recalled_ids and iid not in seen:
+            seen.add(iid)
+            cleaned.append({**e, "incident_id": iid})
+    return cleaned
+
+
+def first_number(value, default):
+    """'5', 5.0, '90%' or '10-15' -> a whole number (the first one written)."""
+    digits = re.search(r"\d+", str(value if value is not None else ""))
+    return int(digits.group()) if digits else default
 
 
 def calibrate(answer):
@@ -91,7 +127,7 @@ def calibrate(answer):
     cited = [get_incident(e["incident_id"]) for e in answer.get("evidence", [])]
     cited = [c for c in cited if c]
     proven = sum(1 for c in cited if c["fix_successful"])
-    model = int(answer.get("confidence", 0) or 0)
+    model = first_number(answer.get("confidence"), default=0)
     if proven >= 3:
         conf = min(98, max(model, 88 + 2 * proven))
     elif proven == 2:
