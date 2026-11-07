@@ -365,3 +365,16 @@ section[data-testid="stSidebar"] { background: rgba(10, 11, 18, 0.92); border-ri
 
 /* hide Streamlit's auto anchor icons on our headings */
 [data-testid="stHeaderActionElements"], .sec h2 a, .headline a { display: none !important; }
+
+/* the hidden frame that runs the motion engine takes no space */
+.stElementContainer:has(> iframe[data-testid="stIFrame"]) { position: absolute; width: 0; height: 0; overflow: hidden; margin: 0; }
+
+/* lessons from memory (reflect) */
+.lessons-head { margin: 34px 0 12px; }
+.lessons-head .k { font-size: .74rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+.lessons-head .k code { text-transform: none; letter-spacing: 0; color: var(--gold-2); background: rgba(212,168,83,.08); padding: 1px 6px; border-radius: 5px; }
+.lessons-head p { margin: 6px 0 0; color: var(--muted); font-size: .9rem; max-width: 720px; }
+.st-key-lesson_card { margin-top: 14px; padding: 22px 24px; border-radius: 18px; background: var(--glass); border: 1px solid rgba(212,168,83,.22); backdrop-filter: blur(16px); box-shadow: 0 20px 50px -20px rgba(0,0,0,.6); }
+.st-key-lesson_card p, .st-key-lesson_card li { color: var(--text); font-size: .92rem; line-height: 1.65; }
+.st-key-lesson_card strong { color: var(--ink); }
+.st-key-lesson_card h1, .st-key-lesson_card h2, .st-key-lesson_card h3 { font-size: 1rem !important; color: var(--gold-2) !important; }

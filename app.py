@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from agent import analyse, write_postmortem
-from memory import DATA_FILE, learn_new_incident, load_incidents
+from memory import DATA_FILE, learn_new_incident, load_incidents, reflect_lessons
 from ui import confidence_ring, esc, html_block, load_theme, memory_graph
 
 st.set_page_config(page_title="DejaVu · Incident memory", page_icon="🧠", layout="wide",
@@ -30,7 +30,8 @@ CHAOS = [
 
 ss = st.session_state
 for key, default in {"error": "", "service": "payments-api", "result": None, "baseline": None,
-                     "learned_ids": [], "postmortem": None, "chaos_i": 0, "use_memory": True}.items():
+                     "learned_ids": [], "postmortem": None, "chaos_i": 0, "use_memory": True,
+                     "retained": None, "lessons": {}, "lesson": None}.items():
     ss.setdefault(key, default)
 
 
@@ -50,10 +51,19 @@ def simulate_outage(index=None):
         ss.chaos_i += 1
     svc, err = CHAOS[index % len(CHAOS)]
     ss.service, ss.error = svc, err
-    ss.result = ss.baseline = ss.postmortem = None
+    ss.result = ss.baseline = ss.postmortem = ss.retained = None
 
 
 QUICK_PICKS = [(0, "Cache KeyError after deploy"), (1, "DB out of connections"), (2, "Auth 429 on login")]
+# Big-picture questions answered by Hindsight reflect over the whole memory
+LESSONS = [
+    ("What keeps breaking?", "Which failures keep coming back across our incidents, and on which services? "
+                             "Cite the incident numbers."),
+    ("Which fixes failed, and why?", "Which fixes failed, what was different about those incidents, "
+                                     "and what worked instead? Cite the incident numbers."),
+    ("What should we fix for good?", "Based on every incident, what are the 3 permanent engineering fixes that "
+                                     "would prevent the most outages? Be specific and cite incident numbers."),
+]
 
 
 incidents = load_incidents()
@@ -96,7 +106,7 @@ with hero_l:
         st.rerun()
     c2.markdown('<a class="btn-ghost" href="#learning">See how it learns <span class="arrow">↓</span></a>',
                 unsafe_allow_html=True)
-    html_block('<div class="proof"><span><i></i>Hindsight retain · recall</span>'
+    html_block('<div class="proof"><span><i></i>Hindsight retain · recall · reflect</span>'
                '<span><i></i>GPT-OSS 120B on Groq</span><span><i></i>Learns from your feedback</span></div>')
 with hero_r:
     if matches:
@@ -170,7 +180,7 @@ with right:
                f'<div class="sub">Every answer runs the Hindsight memory loop.</div>{rows}</div>')
 
 if go_btn or vs_btn:
-    ss.postmortem = None
+    ss.postmortem = ss.retained = None
     try:
         with st.status("DejaVu is working…", expanded=True) as status:
             ss.baseline = None
@@ -209,36 +219,48 @@ if answer:
   {confidence_ring(conf)}
   <div><div class="k">Probable root cause</div><div class="cause">{esc(answer.get("probable_cause", ""))}</div>
   {"" if ss.baseline else f'<div class="summary">{esc(answer.get("summary", ""))}</div>'}
-  <div class="basis">{esc(answer.get("confidence_basis", ""))}</div>
+  {f'<div class="basis">{esc(answer["confidence_basis"])}</div>' if answer.get("confidence_basis") else ""}
   <div>{chips}<span class="chip">ETA ~{esc(answer.get("estimated_minutes", "?"))} min</span></div></div>
 </div>""")
         steps = "".join(f'<div class="step"><div class="n">{i + 1:02d}</div><div>{esc(s)}</div></div>'
                         for i, s in enumerate(answer.get("fix_steps", [])))
         html_block(f'<div class="glass steps dv-reveal dv-stagger"><div class="k">Recommended fix</div>{steps}</div>')
 
-        html_block('<div class="feedback-label"><b>Did the fix work?</b> Your answer is retained as a new memory.</div>')
+        if ss.retained:  # one verdict per diagnosis, so a double click can't store it twice
+            rid, worked = ss.retained
+            html_block(f'<div class="feedback-label"><b>Retained as incident #{rid}</b> · '
+                       f'{"fix worked" if worked else "fix failed"}. DejaVu will recall it next time.</div>')
+        else:
+            html_block('<div class="feedback-label"><b>Did the fix work?</b> Your answer is retained as a new memory.</div>')
         k1, k2, k3 = st.columns(3)
-        outcome = None
-        if k1.button("✓  Fix worked", width="stretch", type="primary"):
-            outcome = True
-        if k2.button("✗  Fix failed", width="stretch"):
-            outcome = False
-        if outcome is not None:
-            new_id = max(i["id"] for i in load_incidents()) + 1
-            learn_new_incident({
-                "id": new_id, "service": ss.service, "title": answer.get("summary", "")[:80],
-                "error_signature": ss.error, "root_cause": answer.get("probable_cause", ""),
-                "resolution_steps": answer.get("fix_steps", []), "fix_successful": outcome,
-                "time_to_resolve_minutes": int(answer.get("estimated_minutes", 5) or 5),
-                "occurred_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            })
-            ss.learned_ids.append(new_id)
-            st.toast(f"Incident #{new_id} retained in Hindsight memory", icon="✅")
-            if outcome:
-                st.balloons()
-            time.sleep(1.2)
-            st.rerun()
-        if k3.button("Write postmortem", width="stretch"):
+        if not ss.retained:
+            outcome = None
+            if k1.button("✓  Fix worked", width="stretch", type="primary"):
+                outcome = True
+            if k2.button("✗  Fix failed", width="stretch"):
+                outcome = False
+            if outcome is not None:
+                new_id = max(i["id"] for i in load_incidents()) + 1
+                try:
+                    learn_new_incident({
+                        "id": new_id, "service": ss.service, "title": answer.get("summary", "")[:80],
+                        "error_signature": ss.error, "root_cause": answer.get("probable_cause", ""),
+                        "resolution_steps": answer.get("fix_steps", []), "fix_successful": outcome,
+                        "time_to_resolve_minutes": answer.get("estimated_minutes", 5),
+                        "occurred_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    })
+                except Exception as e:
+                    friendly_error(e)
+                else:
+                    ss.learned_ids.append(new_id)
+                    ss.retained = (new_id, outcome)
+                    ss.lessons = {}  # memory changed, so old lessons may be out of date
+                    st.toast(f"Incident #{new_id} retained in Hindsight memory", icon="✅")
+                    if outcome:
+                        st.balloons()
+                    time.sleep(1.2)
+                    st.rerun()
+        if (k1 if ss.retained else k3).button("Write postmortem", width="stretch"):
             try:
                 with st.spinner("Writing a blameless postmortem…"):
                     ss.postmortem = write_postmortem(ss.error, answer)
@@ -298,14 +320,34 @@ for name, color, symbol, keep in groups:
 curve.add_annotation(x=len(history), y=avg[len(history) - 1], text=f"<b>{faster}% faster</b>", showarrow=True,
                      arrowhead=0, arrowcolor="#34D399", ax=-70, ay=-50, font=dict(color="#6EE7B7", size=13),
                      bgcolor="rgba(7,8,13,.85)", bordercolor="rgba(52,211,153,.4)", borderpad=6)
-curve.update_layout(template="plotly_dark", font=dict(family="Inter", color="#9AA1B4"), height=380,
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=8, r=8, t=8, b=36),
+curve.update_layout(template="plotly_dark", font=dict(family="Inter", color="#9AA1B4"), height=400,
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=8, r=8, t=8, b=56),
                     xaxis=dict(title="Incident, in the order it happened", gridcolor="rgba(255,255,255,0.05)",
                                zeroline=False, range=[0.4, len(incidents) + 0.6], dtick=1 if len(incidents) <= 24 else None),
                     yaxis=dict(title="Minutes to fix", gridcolor="rgba(255,255,255,0.05)", zeroline=False,
                                range=[0, max(ys) * 1.15]),
                     legend=dict(orientation="h", y=1.12, x=0), hoverlabel=dict(bgcolor="#11131C", bordercolor="#2A2F40"))
 st.plotly_chart(curve, width="stretch", config={"displayModeBar": False})
+
+# ================= lessons from memory (Hindsight reflect) =================
+html_block('<div class="lessons-head dv-reveal"><div class="k">Lessons from memory · <code>reflect()</code></div>'
+           '<p>Recall answers one outage. Reflect reads every incident DejaVu remembers and answers the '
+           'big questions a team lead asks.</p></div>')
+for col, (label, question) in zip(st.columns(3), LESSONS):
+    if col.button(label, key=f"lesson_{label}", width="stretch"):
+        if label not in ss.lessons:  # each answer costs AI tokens, so ask once per session
+            try:
+                with st.spinner("Hindsight is reflecting on every past incident…"):
+                    ss.lessons[label] = reflect_lessons(question)
+            except Exception as e:
+                friendly_error(e)
+        ss.lesson = label if label in ss.lessons else ss.lesson
+if ss.lesson in ss.lessons:
+    text, used = ss.lessons[ss.lesson]
+    with st.container(key="lesson_card"):
+        st.markdown(f"**{ss.lesson}**")
+        st.markdown(text)
+        st.caption(f"Hindsight reflect{f' · based on {used} memories' if used else ''}")
 
 # ================= sidebar: memory timeline =================
 with st.sidebar:
