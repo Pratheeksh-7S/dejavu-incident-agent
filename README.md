@@ -4,6 +4,8 @@
 
 ![DejaVu hero](docs/hero.png)
 
+**▶ Watch the 3-minute demo:** https://youtu.be/Nu_sktguGMk
+
 ---
 
 ## The problem
