@@ -189,3 +189,7 @@ docs/               Screenshots
 
 - Hindsight on GitHub: https://github.com/vectorize-io/hindsight
 - What is agent memory? https://vectorize.io/what-is-agent-memory
+
+## License
+
+MIT. See [LICENSE](LICENSE).
