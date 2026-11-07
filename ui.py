@@ -9,7 +9,6 @@ import math
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 HERE = Path(__file__).parent
 
@@ -28,8 +27,13 @@ def load_theme():
     st.markdown(f"<style>{(HERE / 'style.css').read_text(encoding='utf-8')}</style>", unsafe_allow_html=True)
     js = (HERE / "motion.js").read_text(encoding="utf-8")
     gsap = (HERE / "vendor" / "gsap.min.js").read_text(encoding="utf-8")  # bundled: works on venue Wi-Fi too
-    # A zero-height component runs motion.js, which then animates the main page.
-    components.html(f"<script>window.__GSAP_SRC = {json.dumps(gsap)};</script><script>{js}</script>", height=0)
+    # A hidden frame runs motion.js, which then animates the main page.
+    engine = f"<script>window.__GSAP_SRC = {json.dumps(gsap)};</script><script>{js}</script>"
+    if hasattr(st, "iframe"):  # newer Streamlit: components.html is being removed
+        st.iframe(engine, height=1)  # style.css hides this 1px frame
+    else:
+        import streamlit.components.v1 as components
+        components.html(engine, height=0)
 
 
 FAMILIES = [  # (keyword in root cause, family label)
