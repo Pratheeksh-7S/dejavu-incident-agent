@@ -1,0 +1,85 @@
+"""DejaVu agent brain.
+
+Flow: new error -> RECALL similar incidents from Hindsight -> GPT (via Groq)
+reasons over them -> structured answer the UI can show.
+"""
+import json
+import os
+
+from dotenv import load_dotenv
+from groq import Groq
+
+from memory import load_incidents, recall_similar
+
+load_dotenv()
+
+MODEL = "openai/gpt-oss-120b"
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+INCIDENTS = {inc["id"]: inc for inc in load_incidents()}
+
+SYSTEM_PROMPT = """You are DejaVu, an incident-response assistant with long-term memory
+of past production incidents. You receive a NEW error plus PAST incidents recalled
+from memory. Reply ONLY with JSON in exactly this shape:
+{
+  "probable_cause": "one or two sentences",
+  "confidence": 0-100,
+  "evidence": [{"incident_id": 12, "why": "short reason it matches"}],
+  "fix_steps": ["step 1", "step 2", "step 3"],
+  "estimated_minutes": 5,
+  "summary": "one punchy sentence for the on-call engineer"
+}
+Rules:
+- Never invent incidents. Only cite incident_id values that appear in PAST INCIDENTS.
+- Confidence must come from evidence: more matching incidents whose fix WORKED = higher.
+- If PAST INCIDENTS is empty or nothing truly matches: evidence = [], confidence <= 30,
+  and summary must start with "No similar incident in memory".
+- estimated_minutes: base it on the resolve times of matching incidents (recent ones count more).
+"""
+
+
+def describe(incident_id):
+    inc = INCIDENTS.get(incident_id)
+    if not inc:
+        return None
+    return (
+        f"Incident #{inc['id']} ({inc['service']}, {inc['occurred_at'][:10]}): {inc['title']}\n"
+        f"  Error: {inc['error_signature'][:300]}\n"
+        f"  Root cause: {inc['root_cause']}\n"
+        f"  Fix: {' | '.join(inc['resolution_steps'])}\n"
+        f"  Fix worked: {inc['fix_successful']}, resolved in {inc['time_to_resolve_minutes']} min"
+    )
+
+
+def analyse(error_text, use_memory=True):
+    """Return (answer_dict, recalled_matches)."""
+    matches = recall_similar(error_text) if use_memory else []
+    past = "\n\n".join(filter(None, (describe(m["incident_id"]) for m in matches))) or "(none)"
+
+    reply = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": f"NEW ERROR:\n{error_text}\n\nPAST INCIDENTS:\n{past}"},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.2,
+    )
+    answer = json.loads(reply.choices[0].message.content)
+
+    # Safety net: drop any incident the model cited that memory did not recall.
+    recalled_ids = {m["incident_id"] for m in matches}
+    answer["evidence"] = [e for e in answer.get("evidence", []) if e.get("incident_id") in recalled_ids]
+    return answer, matches
+
+
+if __name__ == "__main__":
+    samples = {
+        "cache bug (should match)": "KeyError: 'amount' reading cached object 'pay:txn:v1:9931' right after the v3.2 deploy",
+        "database (should match)": "FATAL: remaining connection slots are reserved, max_connections=200 active=200",
+        "unknown (should say no match)": "Printer on floor 3 is out of magenta ink",
+    }
+    for name, error in samples.items():
+        answer, matches = analyse(error)
+        print(f"\n=== {name} ===")
+        print(f"Recalled incidents: {[m['incident_id'] for m in matches]}")
+        print(json.dumps(answer, indent=2))
