@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import plotly.graph_objects as go
 import streamlit as st
 
-from agent import analyse, write_postmortem
+from agent import analyse, lessons_from_recall, write_postmortem
 from memory import DATA_FILE, learn_new_incident, load_incidents, reflect_lessons
 from ui import confidence_ring, esc, html_block, load_theme, memory_graph
 
@@ -37,8 +37,10 @@ for key, default in {"error": "", "service": "payments-api", "result": None, "ba
 
 def friendly_error(e):
     msg = str(e)
-    if "429" in msg or "rate" in msg.lower():
+    low = msg.lower()
+    if "429" in msg or "rate limit" in low or "too many requests" in low:
         st.warning("The free AI tier is busy. Wait about 30 seconds and try again.")
+        st.caption(f"Details: {msg[:400]}")
     elif "Connect" in type(e).__name__ or "8888" in msg or "connection" in msg.lower():
         st.error("The memory server is not running. Open a terminal and run: python start_memory.py")
     else:
@@ -338,16 +340,22 @@ for col, (label, question) in zip(st.columns(3), LESSONS):
         if label not in ss.lessons:  # each answer costs AI tokens, so ask once per session
             try:
                 with st.spinner("Hindsight is reflecting on every past incident…"):
-                    ss.lessons[label] = reflect_lessons(question)
+                    try:
+                        ss.lessons[label] = (*reflect_lessons(question), "reflect")
+                    except Exception:  # reflect is multi-step; on the free tier fall back to one call
+                        ss.lessons[label] = (*lessons_from_recall(question), "recall")
             except Exception as e:
                 friendly_error(e)
         ss.lesson = label if label in ss.lessons else ss.lesson
 if ss.lesson in ss.lessons:
-    text, used = ss.lessons[ss.lesson]
+    text, used, mode = ss.lessons[ss.lesson]
     with st.container(key="lesson_card"):
         st.markdown(f"**{ss.lesson}**")
         st.markdown(text)
-        st.caption(f"Hindsight reflect{f' · based on {used} memories' if used else ''}")
+        if mode == "reflect":
+            st.caption(f"Hindsight reflect{f' · based on {used} memories' if used else ''}")
+        else:
+            st.caption(f"Hindsight recall + GPT-OSS · {used} incidents (reflect was over the free AI tier's limit)")
 
 # ================= sidebar: memory timeline =================
 with st.sidebar:
