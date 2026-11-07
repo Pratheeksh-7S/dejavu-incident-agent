@@ -1,0 +1,308 @@
+[
+  {
+    "id": 1,
+    "service": "payments-api",
+    "title": "Payment confirmations returning HTTP 500 after v2.14 deploy",
+    "error_signature": "ERROR [payments-api] 2026-03-04T02:13:44Z PaymentController.confirm - json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0) while reading cache key 'pay:session:8f2c41'",
+    "root_cause": "Redis cache invalidation bug after deploy: the new release changed the cache key format but old keys were not flushed, so services read stale or malformed cached objects.",
+    "resolution_steps": [
+      "Rolled back payments-api to v2.13",
+      "Investigated database for corruption (none found)",
+      "Manually flushed Redis db 2",
+      "Redeployed v2.14"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 47,
+    "occurred_at": "2026-03-04T02:13:44Z"
+  },
+  {
+    "id": 2,
+    "service": "checkout-worker",
+    "title": "Checkout jobs stuck: TypeError on cart object",
+    "error_signature": "Traceback (most recent call last):\n  File \"/app/worker/checkout.py\", line 88, in process_cart\n    total = cart['items_total'] + cart['shipping']\nTypeError: string indices must be integers, not 'str'",
+    "root_cause": "Redis cache invalidation bug after deploy: the new release changed the cache key format but old keys were not flushed, so services read stale or malformed cached objects.",
+    "resolution_steps": [
+      "Found cached cart objects stored as JSON strings by the old release",
+      "Flushed cart:* keys in Redis",
+      "Restarted checkout-worker deployment"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 41,
+    "occurred_at": "2026-03-19T14:02:10Z"
+  },
+  {
+    "id": 3,
+    "service": "auth-service",
+    "title": "Users logged out instantly after login",
+    "error_signature": "WARN [auth-service] SessionStore.get key=sess:v2:91ab... returned None (cache hit expected) - 4,812 occurrences in 5m; 401 Unauthorized spike on /api/me",
+    "root_cause": "Redis cache invalidation bug after deploy: the new release changed the cache key format but old keys were not flushed, so services read stale or malformed cached objects.",
+    "resolution_steps": [
+      "Noticed spike started 4 minutes after auth-service v5.2 deploy",
+      "Flushed sess:* keys",
+      "Restarted auth-service pods"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 38,
+    "occurred_at": "2026-04-02T09:41:27Z"
+  },
+  {
+    "id": 4,
+    "service": "user-db",
+    "title": "Database connection pool exhausted",
+    "error_signature": "psycopg2.OperationalError: FATAL: remaining connection slots are reserved for non-replication superuser connections (max_connections=200, active=200)",
+    "root_cause": "Connection leak: a new reporting job opened DB connections inside a loop without closing them.",
+    "resolution_steps": [
+      "Identified idle-in-transaction connections from reporting-job via pg_stat_activity",
+      "Killed leaked connections with pg_terminate_backend",
+      "Patched job to use a context manager for connections",
+      "Added pool max_overflow=10 limit"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 52,
+    "occurred_at": "2026-04-15T23:30:05Z"
+  },
+  {
+    "id": 5,
+    "service": "payments-api",
+    "title": "Payments API OOMKilled every 20 minutes",
+    "error_signature": "kubelet: Container payments-api in pod payments-api-7d9f8 was OOMKilled (memory limit 1Gi, usage 1.02Gi); restartCount=14",
+    "root_cause": "Memory leak: an in-process LRU cache had no max size and grew with every unique merchant ID.",
+    "resolution_steps": [
+      "Captured heap snapshot with tracemalloc",
+      "Set maxsize=10000 on functools.lru_cache",
+      "Raised memory limit to 1.5Gi temporarily"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 44,
+    "occurred_at": "2026-04-28T11:17:52Z"
+  },
+  {
+    "id": 6,
+    "service": "checkout-worker",
+    "title": "Order queue backlog over 50,000 messages",
+    "error_signature": "WARN [rabbitmq] queue 'orders.checkout' messages_ready=52341 consumers=2 publish_rate=410/s deliver_rate=35/s",
+    "root_cause": "Queue backlog: autoscaler was disabled during a cost-saving change, leaving only 2 consumers for peak traffic.",
+    "resolution_steps": [
+      "Re-enabled HPA for checkout-worker (min 4, max 20)",
+      "Scaled to 16 replicas manually",
+      "Monitored backlog drain to zero"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 35,
+    "occurred_at": "2026-05-06T18:45:00Z"
+  },
+  {
+    "id": 7,
+    "service": "payments-api",
+    "title": "Refund endpoint returns KeyError 'currency'",
+    "error_signature": "ERROR [payments-api] RefundService.create - KeyError: 'currency' at refunds.py:142 (object loaded from cache key 'pay:txn:v1:55e10')",
+    "root_cause": "Redis cache invalidation bug after deploy: the new release changed the cache key format but old keys were not flushed, so services read stale or malformed cached objects.",
+    "resolution_steps": [
+      "Confirm a deploy happened in the last 30 minutes (check the release dashboard)",
+      "Flush the affected Redis keyspace: redis-cli -n 2 --scan --pattern 'v1:*' | xargs redis-cli -n 2 DEL",
+      "Restart the service pods so in-memory caches are rebuilt",
+      "Verify error rate drops below 0.1% on the service dashboard"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 22,
+    "occurred_at": "2026-05-21T07:58:31Z"
+  },
+  {
+    "id": 8,
+    "service": "auth-service",
+    "title": "OAuth login fails with invalid_client",
+    "error_signature": "ERROR [auth-service] OAuthCallback - invalid_client: client_secret mismatch for client_id=web-prod (provider responded 401)",
+    "root_cause": "Bad config: rotated OAuth client secret was updated in the vault but the auth-service ConfigMap still referenced the old version.",
+    "resolution_steps": [
+      "Compared secret version in vault vs pod env",
+      "Updated ConfigMap to the new secret version",
+      "Rolling restart of auth-service"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 28,
+    "occurred_at": "2026-06-03T10:12:09Z"
+  },
+  {
+    "id": 9,
+    "service": "user-db",
+    "title": "Slow queries: profile page taking 9 seconds",
+    "error_signature": "LOG: duration: 9214.332 ms statement: SELECT * FROM user_profiles WHERE lower(email) = lower($1)",
+    "root_cause": "Missing index: a new query used lower(email) but only a plain email index existed.",
+    "resolution_steps": [
+      "Ran EXPLAIN ANALYZE and found a sequential scan",
+      "Created index CONCURRENTLY on lower(email)",
+      "Confirmed query time under 15ms"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 26,
+    "occurred_at": "2026-06-17T15:40:44Z"
+  },
+  {
+    "id": 10,
+    "service": "checkout-worker",
+    "title": "Duplicate orders created during retry storm",
+    "error_signature": "WARN [checkout-worker] idempotency key missing for order_id=ord_88213; message redelivered 3 times (x-death count=3)",
+    "root_cause": "Bad config: consumer ack timeout set below average processing time, causing redelivery and double processing.",
+    "resolution_steps": [
+      "Raised consumer ack timeout from 5s to 60s",
+      "Added idempotency key check before order insert",
+      "Refunded 37 duplicate orders"
+    ],
+    "fix_successful": false,
+    "time_to_resolve_minutes": 64,
+    "occurred_at": "2026-06-29T20:05:18Z"
+  },
+  {
+    "id": 11,
+    "service": "payments-api",
+    "title": "Stripe webhook signature verification failing",
+    "error_signature": "stripe.error.SignatureVerificationError: No signatures found matching the expected signature for payload",
+    "root_cause": "Bad config: webhook signing secret not updated after a new webhook endpoint was created in the Stripe dashboard.",
+    "resolution_steps": [
+      "Copied the new signing secret into the vault",
+      "Restarted payments-api",
+      "Replayed failed webhooks from the Stripe dashboard"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 19,
+    "occurred_at": "2026-07-10T03:22:51Z"
+  },
+  {
+    "id": 12,
+    "service": "checkout-worker",
+    "title": "Promo codes ignored at checkout",
+    "error_signature": "WARN [checkout-worker] PromoEngine.apply - cached promo 'promo:v1:DIWALI25' has no field 'discount_pct'; skipping discount (1,204 times in 10m)",
+    "root_cause": "Redis cache invalidation bug after deploy: the new release changed the cache key format but old keys were not flushed, so services read stale or malformed cached objects.",
+    "resolution_steps": [
+      "Confirm a deploy happened in the last 30 minutes (check the release dashboard)",
+      "Flush the affected Redis keyspace: redis-cli -n 2 --scan --pattern 'v1:*' | xargs redis-cli -n 2 DEL",
+      "Restart the service pods so in-memory caches are rebuilt",
+      "Verify error rate drops below 0.1% on the service dashboard"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 9,
+    "occurred_at": "2026-07-24T12:31:06Z"
+  },
+  {
+    "id": 13,
+    "service": "user-db",
+    "title": "Disk full on primary database",
+    "error_signature": "PANIC: could not write to file \"pg_wal/xlogtemp.112\": No space left on device",
+    "root_cause": "Disk exhaustion: WAL files piled up because a replication slot for a decommissioned replica was never dropped.",
+    "resolution_steps": [
+      "Identified inactive replication slot via pg_replication_slots",
+      "Dropped the stale slot",
+      "Expanded volume by 100GB",
+      "Added disk usage alert at 80%"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 31,
+    "occurred_at": "2026-08-02T01:48:39Z"
+  },
+  {
+    "id": 14,
+    "service": "auth-service",
+    "title": "Rate limiter blocking all logins",
+    "error_signature": "429 Too Many Requests: rate limit exceeded for key=ip:10.0.0.1 (limit 100/min)",
+    "root_cause": "Bad config: rate limiter keyed by load balancer IP instead of X-Forwarded-For, so every user shared one bucket.",
+    "resolution_steps": [
+      "Switched limiter key to the X-Forwarded-For header",
+      "Flushed rate limit counters",
+      "Deployed hotfix"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 14,
+    "occurred_at": "2026-08-14T16:09:57Z"
+  },
+  {
+    "id": 15,
+    "service": "checkout-worker",
+    "title": "Worker crash loop: memory overflow parsing large carts",
+    "error_signature": "MemoryError at worker/checkout.py:51 in load_cart_snapshot (cart size 48MB); CrashLoopBackOff",
+    "root_cause": "Memory overflow: a bot created carts with thousands of items and the worker loaded full snapshots into memory.",
+    "resolution_steps": [
+      "Added max 200 items per cart validation",
+      "Streamed cart snapshots instead of loading fully",
+      "Blocked the bot user agent at the WAF"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 17,
+    "occurred_at": "2026-08-27T22:14:03Z"
+  },
+  {
+    "id": 16,
+    "service": "payments-api",
+    "title": "Currency conversion returning zero",
+    "error_signature": "ERROR [payments-api] FxService.convert - rate for INR->USD is 0.0 (provider response stale since 2026-09-08T00:00:00Z)",
+    "root_cause": "Third-party outage: FX rate provider returned stale data and the service had no fallback.",
+    "resolution_steps": [
+      "Switched to secondary FX provider",
+      "Added staleness check (reject rates older than 1h)",
+      "Recalculated 212 affected payments"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 12,
+    "occurred_at": "2026-09-08T08:27:30Z"
+  },
+  {
+    "id": 17,
+    "service": "user-db",
+    "title": "Replication lag 15 minutes on read replica",
+    "error_signature": "WARN replica lag: 912 seconds behind primary (replay_lsn 3F/2A0012C8)",
+    "root_cause": "Heavy migration: an ALTER TABLE rewrite on a large table generated massive WAL during business hours.",
+    "resolution_steps": [
+      "Paused the migration",
+      "Routed reads to primary temporarily",
+      "Rescheduled migration for low traffic window with pg_repack"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 8,
+    "occurred_at": "2026-09-22T13:51:12Z"
+  },
+  {
+    "id": 18,
+    "service": "auth-service",
+    "title": "Password reset tokens rejected as expired",
+    "error_signature": "INFO [auth-service] ResetTokenValidator - token loaded from cache 'reset:v1:7781' has expires_at as string; comparison failed -> treated as expired (93 users affected)",
+    "root_cause": "Redis cache invalidation bug after deploy: the new release changed the cache key format but old keys were not flushed, so services read stale or malformed cached objects.",
+    "resolution_steps": [
+      "Confirm a deploy happened in the last 30 minutes (check the release dashboard)",
+      "Flush the affected Redis keyspace: redis-cli -n 2 --scan --pattern 'v1:*' | xargs redis-cli -n 2 DEL",
+      "Restart the service pods so in-memory caches are rebuilt",
+      "Verify error rate drops below 0.1% on the service dashboard"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 4,
+    "occurred_at": "2026-10-05T10:03:44Z"
+  },
+  {
+    "id": 19,
+    "service": "payments-api",
+    "title": "Payments timing out to bank gateway",
+    "error_signature": "requests.exceptions.ReadTimeout: HTTPSConnectionPool(host='gateway.bankpartner.in', port=443): Read timed out. (read timeout=5)",
+    "root_cause": "Third-party latency: partner bank gateway degraded; the client timeout was too short with no retry.",
+    "resolution_steps": [
+      "Increased timeout to 15s with 2 retries and exponential backoff",
+      "Enabled circuit breaker to queue payments",
+      "Notified partner bank"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 3,
+    "occurred_at": "2026-10-19T19:36:20Z"
+  },
+  {
+    "id": 20,
+    "service": "checkout-worker",
+    "title": "Queue consumers disconnected after broker upgrade",
+    "error_signature": "pika.exceptions.ConnectionClosedByBroker: (320, \"CONNECTION_FORCED - broker forced connection closure with reason 'shutdown'\")",
+    "root_cause": "Queue backlog: workers had no reconnect logic, so they stayed disconnected after the broker restarted during an upgrade.",
+    "resolution_steps": [
+      "Restarted checkout-worker pods to reconnect",
+      "Added automatic reconnect with backoff to the consumer",
+      "Verified backlog drained"
+    ],
+    "fix_successful": true,
+    "time_to_resolve_minutes": 2,
+    "occurred_at": "2026-10-30T05:11:58Z"
+  }
+]
