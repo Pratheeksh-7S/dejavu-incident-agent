@@ -36,7 +36,7 @@ Hindsight is the core of DejaVu, not an add-on. All memory logic lives in [`memo
 | `retain` | `save_incident()` | Stores each incident as plain-English memory with its real timestamp, a stable `document_id` (`incident-12`) so re-runs update instead of duplicating, and metadata (`incident_id`, `service`). |
 | `retain(retain_async=True)` | `learn_new_incident()` | **Live learning.** When the engineer confirms a fix in the UI, the new incident is retained in the background, so the app never freezes. |
 | `recall` | `recall_similar()` | Finds past incidents similar to a new error. Facts are grouped per incident and ranked by the **reranker relevance score**, not recency, so an old but identical outage still wins. |
-| `reflect` | `reflect_lessons()` | **Lessons from memory.** Reasons over *every* incident to answer a team lead's questions: what keeps breaking, which fixes failed and why, what to fix for good. |
+| `reflect` | `reflect_lessons()` | **Lessons from memory.** Reasons over *every* incident to answer a team lead's questions: what keeps breaking, which fixes failed and why, what to fix for good. Reflect makes several AI calls, so on Groq's free tier DejaVu falls back to `recall` plus one AI call, and the card says which one answered. |
 
 **Why this matters:** the cache-invalidation bug appears 6 times in our history, on 3 different services, with 6 different error messages (`KeyError`, `TypeError`, HTTP 500, expired tokens...). Keyword search can't connect them. Hindsight's semantic recall does. That's what lets DejaVu say *"Seen this 5 times; this fix worked every time"*.
 
