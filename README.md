@@ -36,6 +36,7 @@ Hindsight is the core of DejaVu, not an add-on. All memory logic lives in [`memo
 | `retain` | `save_incident()` | Stores each incident as plain-English memory with its real timestamp, a stable `document_id` (`incident-12`) so re-runs update instead of duplicating, and metadata (`incident_id`, `service`). |
 | `retain(retain_async=True)` | `learn_new_incident()` | **Live learning.** When the engineer confirms a fix in the UI, the new incident is retained in the background, so the app never freezes. |
 | `recall` | `recall_similar()` | Finds past incidents similar to a new error. Facts are grouped per incident and ranked by the **reranker relevance score**, not recency, so an old but identical outage still wins. |
+| `reflect` | `reflect_lessons()` | **Lessons from memory.** Reasons over *every* incident to answer a team lead's questions: what keeps breaking, which fixes failed and why, what to fix for good. |
 
 **Why this matters:** the cache-invalidation bug appears 6 times in our history, on 3 different services, with 6 different error messages (`KeyError`, `TypeError`, HTTP 500, expired tokens...). Keyword search can't connect them. Hindsight's semantic recall does. That's what lets DejaVu say *"Seen this 5 times; this fix worked every time"*.
 
@@ -66,6 +67,7 @@ flowchart LR
     A -->|calibrated diagnosis| UI
     U -->|Fix worked / failed| UI
     UI -->|retain new incident| H
+    UI -->|reflect: lessons across all incidents| H
 ```
 
 ## Features
@@ -74,16 +76,28 @@ flowchart LR
 - **Before vs after:** run the same agent *without* memory and *with* Hindsight memory side by side and watch confidence jump (98% with memory on our cache outage).
 - **Cited fix plans:** every claim links to a real recalled incident, with the reason it matches.
 - **One-click learning:** confirm a fix and it becomes a memory, with confetti and a new green dot on the map.
+- **Lessons from memory:** one click asks Hindsight `reflect` what keeps breaking, which fixes failed, and what to fix for good.
 - **Postmortem writer:** a blameless Markdown postmortem in one click, downloadable.
 - **Learning curve:** time-to-fix per incident, with failed fixes marked separately.
 - **Outage simulator:** realistic alerts (cache KeyError, DB connection exhaustion, auth 429, queue backlog, OOM) for a live demo.
 - **Premium UI:** black and champagne-gold theme, GSAP animations (bundled locally, so it works offline), works on desktop and phone, respects reduced-motion settings.
 
+## Path to adoption
+
+DejaVu is built to slot into how on-call teams already work:
+
+1. **Import history.** Load past incidents from postmortems or a ticket export into Hindsight (`load_memory.py` already does this from JSON).
+2. **Alert in.** A PagerDuty, Opsgenie or Grafana webhook sends each new alert to DejaVu, so recall starts before anyone opens a laptop.
+3. **Fix plan out.** The cited diagnosis is posted to the incident's Slack or Teams channel.
+4. **Close the loop.** The engineer's "fix worked / failed" becomes a new memory, and a weekly `reflect` report tells the team lead what to fix for good.
+
+Steps 2 and 3 are on the roadmap; steps 1 and 4 work today.
+
 ---
 
 ## Built with Band
 
-We used the **Band AI desktop app** while building DejaVu. A Claude Code agent in a Band room wrote the automated test suite (`tests/`, 35 pytest tests for confidence calibration and memory recall, with Hindsight mocked). The tests caught a real bug: confidence could reach 100% when the model said 100, breaking the 90–98 scale. It is now capped at 98.
+We used the **Band AI desktop app** while building DejaVu. A Claude Code agent in a Band room wrote the automated test suite (`tests/`, 35 pytest tests for confidence calibration and memory recall, with Hindsight mocked). The tests caught a real bug: confidence could reach 100% when the model said 100, breaking the 90–98 scale. It is now capped at 98. The suite has since grown to 51 tests, including guards against the model citing an incident twice or writing ids as text.
 
 ![Band agent writing DejaVu's tests](docs/band.png)
 
