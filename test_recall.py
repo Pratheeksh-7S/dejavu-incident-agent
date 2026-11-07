@@ -12,4 +12,4 @@ for name, error in tests.items():
     if not matches:
         print("  No similar incident in memory")
     for m in matches:
-        print(f"  -> Incident #{m['incident_id']}: {m['facts'][0][:110]}")
+        print(f"  -> Incident #{m['incident_id']} (match {m['match']:.0%}): {m['facts'][0][:100]}")

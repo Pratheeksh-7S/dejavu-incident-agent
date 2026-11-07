@@ -4,6 +4,7 @@ Hindsight is DejaVu's long-term memory:
 - save_incident()  -> RETAIN: store a past incident (error, cause, fix, outcome)
 - recall_similar() -> RECALL: find past incidents that look like a new error
 """
+import atexit
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ BANK_ID = "dejavu-incidents"
 DATA_FILE = Path(__file__).parent / "incidents.json"
 
 client = Hindsight(base_url=os.getenv("HINDSIGHT_BASE_URL", "http://localhost:8888"))
+atexit.register(client.close)  # close the connection cleanly when the program ends
 
 
 def load_incidents():
@@ -64,14 +66,11 @@ def save_incident(inc):
 def recall_similar(error_text, max_incidents=5):
     """RECALL past incidents similar to a new error.
 
-    Returns a list like: [{"incident_id": 12, "facts": ["...", "..."]}, ...]
-    ordered from best match to weakest.
+    Returns the best matches first, like:
+    [{"incident_id": 12, "match": 0.91, "facts": ["...", "..."]}, ...]
+    "match" is Hindsight's relevance score (0 to 1) for the best fact of that incident.
     """
-    response = client.recall(
-        bank_id=BANK_ID,
-        query=f"Past incidents similar to this error, with root cause and fix: {error_text}",
-        budget="mid",
-    )
+    response = client.recall(bank_id=BANK_ID, query=error_text, budget="mid")
     matches = {}
     for fact in response.results:
         incident_id = (fact.metadata or {}).get("incident_id")
@@ -79,8 +78,13 @@ def recall_similar(error_text, max_incidents=5):
             incident_id = fact.document_id.replace("incident-", "")
         if not incident_id or not str(incident_id).isdigit():
             continue
-        matches.setdefault(int(incident_id), []).append(fact.text)
-    return [
-        {"incident_id": iid, "facts": facts}
-        for iid, facts in list(matches.items())[:max_incidents]
-    ]
+        # Rank by pure relevance (reranker), not recency, so old incidents still win.
+        scores = fact.scores
+        score = 0.0
+        if scores is not None:
+            score = scores.reranker if scores.reranker is not None else scores.final
+        entry = matches.setdefault(int(incident_id), {"incident_id": int(incident_id), "match": 0.0, "facts": []})
+        entry["match"] = max(entry["match"], float(score or 0.0))
+        entry["facts"].append(fact.text)
+    ranked = sorted(matches.values(), key=lambda m: m["match"], reverse=True)
+    return ranked[:max_incidents]
