@@ -143,6 +143,29 @@ def calibrate(answer):
     return conf, basis
 
 
+def lessons_from_recall(question):
+    """Lighter backup for Hindsight reflect: recall the incidents that matter, then one AI call.
+
+    Used when reflect's multi-step reasoning is over the free AI tier's limit.
+    Returns (markdown_answer, number_of_incidents_used).
+    """
+    matches = recall_similar(question, max_incidents=8)
+    past = "\n\n".join(filter(None, (describe(m["incident_id"]) for m in matches)))
+    if not past:
+        return "No incidents in memory yet. Load them with load_memory.py.", 0
+    reply = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": (
+                "You are an SRE lead reviewing your team's past incidents. Answer the question in Markdown, "
+                "max 150 words, with bullet points. Cite incident numbers like #12. Use ONLY the incidents given.")},
+            {"role": "user", "content": f"QUESTION: {question}\n\nPAST INCIDENTS:\n{past}"},
+        ],
+        temperature=0.2,
+    )
+    return reply.choices[0].message.content, len(matches)
+
+
 def write_postmortem(error_text, answer):
     """Write a short blameless postmortem for a resolved incident."""
     reply = client.chat.completions.create(

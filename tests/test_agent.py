@@ -123,3 +123,24 @@ def test_unreadable_model_reply_becomes_an_unsure_answer(text):
     answer = agent.parse_answer(text)
     assert answer["confidence"] == 0
     assert answer["evidence"] == []
+
+
+def test_lessons_from_recall_cites_recalled_incidents(monkeypatch):
+    monkeypatch.setattr(agent, "recall_similar", lambda q, max_incidents=8: [{"incident_id": 1}, {"incident_id": 2}])
+    monkeypatch.setattr(agent, "describe", lambda iid: f"Incident #{iid}")
+    seen = {}
+
+    def fake_create(**kwargs):
+        seen.update(kwargs)
+        return type("R", (), {"choices": [type("C", (), {"message": type("M", (), {"content": "- #1 and #2"})})]})
+
+    monkeypatch.setattr(agent.client.chat.completions, "create", fake_create)
+    text, used = agent.lessons_from_recall("what keeps breaking?")
+    assert (text, used) == ("- #1 and #2", 2)
+    assert "Incident #1" in seen["messages"][1]["content"]
+
+
+def test_lessons_from_recall_with_empty_memory(monkeypatch):
+    monkeypatch.setattr(agent, "recall_similar", lambda q, max_incidents=8: [])
+    text, used = agent.lessons_from_recall("anything")
+    assert used == 0 and "No incidents" in text
