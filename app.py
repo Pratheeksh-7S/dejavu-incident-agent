@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 import plotly.graph_objects as go
 import streamlit as st
 
-from agent import analyse, lessons_from_recall, write_postmortem
+from agent import analyse, lessons_from_recall, minutes_since, write_postmortem
 from memory import DATA_FILE, learn_new_incident, load_incidents, reflect_lessons
 from ui import confidence_ring, esc, html_block, load_theme, memory_graph
 
@@ -31,7 +31,7 @@ CHAOS = [
 ss = st.session_state
 for key, default in {"error": "", "service": "payments-api", "result": None, "baseline": None,
                      "learned_ids": [], "postmortem": None, "chaos_i": 0, "use_memory": True,
-                     "retained": None, "lessons": {}, "lesson": None}.items():
+                     "retained": None, "lessons": {}, "lesson": None, "diag_at": None}.items():
     ss.setdefault(key, default)
 
 
@@ -193,6 +193,7 @@ if go_btn or vs_btn:
                 st.write("Recalling similar incidents from Hindsight…")
             st.write("Reasoning over past fixes…")
             ss.result = analyse(ss.error, use_memory=ss.use_memory)
+            ss.diag_at = time.time()  # start the real time-to-fix clock
             status.update(label="Diagnosis ready", state="complete", expanded=False)
         st.rerun()
     except Exception as e:  # keep the demo alive no matter what
@@ -248,7 +249,7 @@ if answer:
                         "id": new_id, "service": ss.service, "title": answer.get("summary", "")[:80],
                         "error_signature": ss.error, "root_cause": answer.get("probable_cause", ""),
                         "resolution_steps": answer.get("fix_steps", []), "fix_successful": outcome,
-                        "time_to_resolve_minutes": answer.get("estimated_minutes", 5),
+                        "time_to_resolve_minutes": minutes_since(ss.diag_at, answer.get("estimated_minutes", 5)),
                         "occurred_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     })
                 except Exception as e:
@@ -300,7 +301,7 @@ if answer:
 
 # ================= 03 learning curve =================
 html_block(f'<div class="sec dv-reveal" id="learning"><div><div class="num">{"03" if answer else "02"} · LEARNING</div><h2>Faster with every outage</h2></div>'
-           f'<p>Minutes to resolve each incident, in order. The line is the 3-incident average.</p></div>')
+           f'<p>Minutes to resolve each incident (#1 to #20, in the order they happened). The line is the 3-incident average.</p></div>')
 xs = list(range(1, len(incidents) + 1))
 ys = [i["time_to_resolve_minutes"] for i in incidents]
 avg = [sum(ys[max(0, k - 2):k + 1]) / len(ys[max(0, k - 2):k + 1]) for k in range(len(ys))]
@@ -323,8 +324,8 @@ curve.add_annotation(x=len(history), y=avg[len(history) - 1], text=f"<b>{faster}
                      arrowhead=0, arrowcolor="#34D399", ax=-70, ay=-50, font=dict(color="#6EE7B7", size=13),
                      bgcolor="rgba(7,8,13,.85)", bordercolor="rgba(52,211,153,.4)", borderpad=6)
 curve.update_layout(template="plotly_dark", font=dict(family="Inter", color="#9AA1B4"), height=400,
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=8, r=8, t=8, b=56),
-                    xaxis=dict(title="Incident, in the order it happened", gridcolor="rgba(255,255,255,0.05)",
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", margin=dict(l=8, r=8, t=8, b=52),
+                    xaxis=dict(title=None, gridcolor="rgba(255,255,255,0.05)",
                                zeroline=False, range=[0.4, len(incidents) + 0.6], dtick=1 if len(incidents) <= 24 else None),
                     yaxis=dict(title="Minutes to fix", gridcolor="rgba(255,255,255,0.05)", zeroline=False,
                                range=[0, max(ys) * 1.15]),
