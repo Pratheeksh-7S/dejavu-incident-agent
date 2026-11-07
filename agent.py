@@ -93,7 +93,7 @@ def calibrate(answer):
     proven = sum(1 for c in cited if c["fix_successful"])
     model = int(answer.get("confidence", 0) or 0)
     if proven >= 3:
-        conf = max(model, min(98, 88 + 2 * proven))
+        conf = min(98, max(model, 88 + 2 * proven))
     elif proven == 2:
         conf = min(max(model, 75), 89)
     elif proven == 1:
