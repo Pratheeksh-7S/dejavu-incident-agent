@@ -3,6 +3,7 @@
 Hindsight is DejaVu's long-term memory:
 - save_incident()  -> RETAIN: store a past incident (error, cause, fix, outcome)
 - recall_similar() -> RECALL: find past incidents that look like a new error
+- reflect_lessons() -> REFLECT: reason over ALL incidents to answer a big-picture question
 """
 import json
 import os
@@ -50,10 +51,10 @@ def learn_new_incident(inc):
     retain_async=True lets the memory server do the heavy reading in the
     background (and retry if the free tier is busy) so the UI never freezes.
     """
+    save_incident(inc, background=True)  # first, so a memory-server error saves nothing half-way
     learned = json.loads(LEARNED_FILE.read_text(encoding="utf-8")) if LEARNED_FILE.exists() else []
     learned.append(inc)
     LEARNED_FILE.write_text(json.dumps(learned, indent=2), encoding="utf-8")
-    save_incident(inc, background=True)
 
 
 def incident_to_text(inc):
@@ -122,3 +123,19 @@ def recall_similar(error_text, max_incidents=5):
         entry["facts"].append(fact.text)
     ranked = sorted(matches.values(), key=lambda m: m["match"], reverse=True)
     return ranked[:max_incidents]
+
+
+def reflect_lessons(question):
+    """REFLECT: Hindsight reasons over the whole memory and answers in plain English.
+
+    recall() returns the facts closest to one error; reflect() looks across every
+    incident, so it can spot what keeps breaking and which fixes never stick.
+    Returns (markdown_answer, number_of_memories_it_used).
+    """
+    with memory_client() as client:
+        try:
+            response = client.reflect(bank_id=BANK_ID, query=question, budget="low", include_facts=True)
+        except TypeError:  # older hindsight-client without include_facts
+            response = client.reflect(bank_id=BANK_ID, query=question, budget="low")
+    based_on = getattr(response, "based_on", None)
+    return response.text, len(getattr(based_on, "memories", None) or [])

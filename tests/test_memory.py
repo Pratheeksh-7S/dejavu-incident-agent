@@ -84,3 +84,31 @@ def test_limits_to_max_incidents(monkeypatch):
 def test_empty_results(monkeypatch):
     out, _ = run_recall(monkeypatch, [])
     assert out == []
+
+
+class FakeReflectClient:
+    def __init__(self, response, old_client=False):
+        self.response, self.old_client, self.calls = response, old_client, []
+
+    def reflect(self, **kwargs):
+        if self.old_client and "include_facts" in kwargs:
+            raise TypeError("unexpected keyword argument 'include_facts'")
+        self.calls.append(kwargs)
+        return self.response
+
+    def close(self):
+        pass
+
+
+def test_reflect_returns_text_and_memory_count(monkeypatch):
+    response = NS(text="Cache bug keeps coming back", based_on=NS(memories=[1, 2, 3]))
+    fake = FakeReflectClient(response)
+    monkeypatch.setattr(memory, "Hindsight", lambda base_url: fake)
+    assert memory.reflect_lessons("what keeps breaking?") == ("Cache bug keeps coming back", 3)
+    assert fake.calls[0]["bank_id"] == memory.BANK_ID
+
+
+def test_reflect_works_with_older_client(monkeypatch):
+    fake = FakeReflectClient(NS(text="ok"), old_client=True)
+    monkeypatch.setattr(memory, "Hindsight", lambda base_url: fake)
+    assert memory.reflect_lessons("q") == ("ok", 0)
