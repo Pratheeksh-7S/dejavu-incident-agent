@@ -16,14 +16,30 @@ load_dotenv()
 
 BANK_ID = "dejavu-incidents"
 DATA_FILE = Path(__file__).parent / "incidents.json"
+LEARNED_FILE = Path(__file__).parent / "learned_incidents.json"  # new incidents learned live
 
 client = Hindsight(base_url=os.getenv("HINDSIGHT_BASE_URL", "http://localhost:8888"))
 atexit.register(client.close)  # close the connection cleanly when the program ends
 
 
 def load_incidents():
-    """Read the past incidents from incidents.json."""
-    return json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    """All incidents DejaVu knows: the history file plus anything learned live."""
+    incidents = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    if LEARNED_FILE.exists():
+        incidents += json.loads(LEARNED_FILE.read_text(encoding="utf-8"))
+    return incidents
+
+
+def learn_new_incident(inc):
+    """LEARNING STEP: keep a new resolved incident locally and retain it in Hindsight.
+
+    retain_async=True lets the memory server do the heavy reading in the
+    background (and retry if the free tier is busy) so the UI never freezes.
+    """
+    learned = json.loads(LEARNED_FILE.read_text(encoding="utf-8")) if LEARNED_FILE.exists() else []
+    learned.append(inc)
+    LEARNED_FILE.write_text(json.dumps(learned, indent=2), encoding="utf-8")
+    save_incident(inc, background=True)
 
 
 def incident_to_text(inc):
@@ -51,7 +67,7 @@ def setup_bank():
     )
 
 
-def save_incident(inc):
+def save_incident(inc, background=False):
     """RETAIN one incident in Hindsight memory."""
     client.retain(
         bank_id=BANK_ID,
@@ -60,6 +76,7 @@ def save_incident(inc):
         timestamp=inc["occurred_at"],
         document_id=f"incident-{inc['id']}",
         metadata={"incident_id": str(inc["id"]), "service": inc["service"]},
+        retain_async=background,
     )
 
 
