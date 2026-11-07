@@ -144,3 +144,18 @@ def test_lessons_from_recall_with_empty_memory(monkeypatch):
     monkeypatch.setattr(agent, "recall_similar", lambda q, max_incidents=8: [])
     text, used = agent.lessons_from_recall("anything")
     assert used == 0 and "No incidents" in text
+
+
+def test_as_steps_keeps_lists_and_splits_strings():
+    from agent import as_steps
+    assert as_steps(["a", " b ", ""]) == ["a", "b"]
+    assert as_steps("- flush cache\n- redeploy") == ["flush cache", "redeploy"]
+    assert as_steps(None) == []
+
+
+def test_minutes_since_uses_real_time(monkeypatch):
+    import agent
+    monkeypatch.setattr(agent.time, "time", lambda: 1000 + 7 * 60)
+    assert agent.minutes_since(1000) == 7
+    assert agent.minutes_since(1000 + 7 * 60 - 5) == 1   # never 0 minutes
+    assert agent.minutes_since(None, fallback="12 min") == 12

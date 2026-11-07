@@ -6,6 +6,7 @@ reasons over them -> structured answer the UI can show.
 import json
 import os
 import re
+import time
 
 from dotenv import load_dotenv
 from groq import Groq
@@ -80,6 +81,7 @@ def analyse(error_text, use_memory=True):
     recalled_ids = {m["incident_id"] for m in matches}
     answer["evidence"] = clean_evidence(answer.get("evidence"), recalled_ids)
     answer["estimated_minutes"] = first_number(answer.get("estimated_minutes"), default=5)
+    answer["fix_steps"] = as_steps(answer.get("fix_steps"))
     answer["confidence"], answer["confidence_basis"] = calibrate(answer)
     return answer, matches
 
@@ -94,6 +96,23 @@ def parse_answer(text):
         return {"probable_cause": "The model did not return a readable answer. Please try again.",
                 "confidence": 0, "evidence": [], "fix_steps": [], "summary": "No answer, try again"}
     return answer
+
+
+def as_steps(value):
+    """Fix steps must be a list. A model that writes one long string would otherwise
+    be shown (and saved to memory) one character per step."""
+    if isinstance(value, str):
+        value = [line.strip(" -*•\t") for line in value.splitlines()]
+    if not isinstance(value, list):
+        return []
+    return [str(step).strip() for step in value if str(step).strip()]
+
+
+def minutes_since(started_at, fallback=5):
+    """Real minutes from diagnosis to the engineer's verdict (at least 1)."""
+    if not started_at:
+        return first_number(fallback, default=5)
+    return max(1, round((time.time() - started_at) / 60))
 
 
 def clean_evidence(evidence, recalled_ids):
