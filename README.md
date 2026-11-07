@@ -97,7 +97,7 @@ Steps 2 and 3 are on the roadmap; steps 1 and 4 work today.
 
 ## Built with Band
 
-We used the **Band AI desktop app** while building DejaVu. A Claude Code agent in a Band room wrote the automated test suite (`tests/`, 35 pytest tests for confidence calibration and memory recall, with Hindsight mocked). The tests caught a real bug: confidence could reach 100% when the model said 100, breaking the 90–98 scale. It is now capped at 98. The suite has since grown to 51 tests, including guards against the model citing an incident twice or writing ids as text.
+We used the **Band AI desktop app** while building DejaVu. A Claude Code agent in a Band room wrote the automated test suite (`tests/`, 35 pytest tests for confidence calibration and memory recall, with Hindsight mocked). The tests caught a real bug: confidence could reach 100% when the model said 100, breaking the 90–98 scale. It is now capped at 98. The suite has since grown to 56 tests, including guards against the model citing an incident twice or writing ids as text.
 
 ![Band agent writing DejaVu's tests](docs/band.png)
 
