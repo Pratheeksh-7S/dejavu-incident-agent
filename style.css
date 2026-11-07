@@ -332,10 +332,11 @@ section[data-testid="stSidebar"] { background: rgba(10, 11, 18, 0.92); border-ri
 /* quick-pick alert chips */
 .picks-label { margin: 18px 0 8px; font-size: .74rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
 .stButton > button[kind="tertiary"] {
-  height: 38px; border-radius: 999px; background: rgba(244,63,94,.05); border: 1px solid rgba(244,63,94,.22); color: #FDA4AF;
+  /* Neutral chips: on a dashboard, red is kept for real alerts only. */
+  height: 38px; border-radius: 999px; background: rgba(255,255,255,.03); border: 1px solid var(--line-2); color: var(--text);
 }
 .stButton > button[kind="tertiary"] p { font-size: .8rem !important; font-weight: 500 !important; }
-.stButton > button[kind="tertiary"]:hover { background: rgba(244,63,94,.12); border-color: rgba(244,63,94,.5); color: #FFE4E6; }
+.stButton > button[kind="tertiary"]:hover { background: rgba(212,168,83,.08); border-color: rgba(212,168,83,.45); color: var(--gold-2); }
 .stButton > button p { font-size: .95rem !important; font-weight: 600 !important; letter-spacing: -.005em; }
 [data-testid="stPlotlyChart"] {
   padding: 18px 14px 8px; border-radius: 18px; background: var(--glass); border: 1px solid var(--line-2);
