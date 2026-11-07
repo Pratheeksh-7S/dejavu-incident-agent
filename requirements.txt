@@ -4,3 +4,4 @@ hindsight-client
 python-dotenv
 plotly
 streamlit-lottie
+hindsight-api
