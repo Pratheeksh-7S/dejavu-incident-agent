@@ -87,17 +87,24 @@ def test_empty_results(monkeypatch):
 
 
 class FakeReflectClient:
-    def __init__(self, response, old_client=False):
-        self.response, self.old_client, self.calls = response, old_client, []
+    def __init__(self, response):
+        self.response, self.calls, self.closed = response, [], False
 
-    def reflect(self, **kwargs):
-        if self.old_client and "include_facts" in kwargs:
-            raise TypeError("unexpected keyword argument 'include_facts'")
+    async def areflect(self, **kwargs):
         self.calls.append(kwargs)
         return self.response
 
-    def close(self):
-        pass
+    async def aclose(self):
+        self.closed = True
+
+
+class OldReflectClient(FakeReflectClient):
+    """An older hindsight-client that does not know include_facts."""
+
+    def areflect(self, **kwargs):
+        if "include_facts" in kwargs:
+            raise TypeError("unexpected keyword argument 'include_facts'")
+        return FakeReflectClient.areflect(self, **kwargs)
 
 
 def test_reflect_returns_text_and_memory_count(monkeypatch):
@@ -106,9 +113,22 @@ def test_reflect_returns_text_and_memory_count(monkeypatch):
     monkeypatch.setattr(memory, "Hindsight", lambda base_url: fake)
     assert memory.reflect_lessons("what keeps breaking?") == ("Cache bug keeps coming back", 3)
     assert fake.calls[0]["bank_id"] == memory.BANK_ID
+    assert fake.closed
 
 
 def test_reflect_works_with_older_client(monkeypatch):
-    fake = FakeReflectClient(NS(text="ok"), old_client=True)
+    fake = OldReflectClient(NS(text="ok"))
     monkeypatch.setattr(memory, "Hindsight", lambda base_url: fake)
     assert memory.reflect_lessons("q") == ("ok", 0)
+
+
+def test_reflect_works_inside_a_worker_thread(monkeypatch):
+    """Streamlit runs each click in a worker thread; reflect must work there too."""
+    import threading
+    fake = FakeReflectClient(NS(text="from thread"))
+    monkeypatch.setattr(memory, "Hindsight", lambda base_url: fake)
+    out = []
+    t = threading.Thread(target=lambda: out.append(memory.reflect_lessons("q")))
+    t.start()
+    t.join()
+    assert out == [("from thread", 0)]

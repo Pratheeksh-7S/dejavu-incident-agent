@@ -5,6 +5,7 @@ Hindsight is DejaVu's long-term memory:
 - recall_similar() -> RECALL: find past incidents that look like a new error
 - reflect_lessons() -> REFLECT: reason over ALL incidents to answer a big-picture question
 """
+import asyncio
 import json
 import os
 from contextlib import contextmanager
@@ -125,17 +126,34 @@ def recall_similar(error_text, max_incidents=5):
     return ranked[:max_incidents]
 
 
+LIGHT_REFLECT = dict(  # keep reflect inside Groq's free tier (about 8k tokens a minute)
+    budget="low", max_tokens=700, exclude_mental_models=True,
+    reflect_search_observations_max_tokens=1500, reflect_search_observations_include_entities=False,
+)
+
+
 def reflect_lessons(question):
     """REFLECT: Hindsight reasons over the whole memory and answers in plain English.
 
     recall() returns the facts closest to one error; reflect() looks across every
     incident, so it can spot what keeps breaking and which fixes never stick.
     Returns (markdown_answer, number_of_memories_it_used).
+
+    Reflect runs several AI steps, so it uses the async client inside its own fresh
+    event loop: Streamlit's worker threads can hold a stale loop that breaks the
+    sync wrapper for long calls.
     """
-    with memory_client() as client:
+    async def run():
+        client = Hindsight(base_url=BASE_URL)
         try:
-            response = client.reflect(bank_id=BANK_ID, query=question, budget="low", include_facts=True)
-        except TypeError:  # older hindsight-client without include_facts
-            response = client.reflect(bank_id=BANK_ID, query=question, budget="low")
+            try:
+                call = client.areflect(bank_id=BANK_ID, query=question, include_facts=True, **LIGHT_REFLECT)
+            except TypeError:  # older hindsight-client without the token-saving options
+                call = client.areflect(bank_id=BANK_ID, query=question, budget="low")
+            return await asyncio.wait_for(call, timeout=120)
+        finally:
+            await client.aclose()
+
+    response = asyncio.run(run())
     based_on = getattr(response, "based_on", None)
     return response.text, len(getattr(based_on, "memories", None) or [])
