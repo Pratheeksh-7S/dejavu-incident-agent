@@ -242,6 +242,8 @@ section[data-testid="stSidebar"] { background: rgba(10, 11, 18, 0.92); border-ri
 .diag { padding: 24px; display: grid; grid-template-columns: 150px 1fr; gap: 24px; align-items: center; }
 .diag .k { font-size: .7rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
 .diag .cause { font-family: var(--display); font-size: 1.32rem; line-height: 1.35; font-weight: 600; letter-spacing: -.02em; color: var(--ink); margin: 8px 0 12px; }
+.diag .basis { margin-top: 8px; font-size: .8rem; color: #F0D9A8; }
+.diag .basis::before { content: "◆ "; color: var(--gold); }
 .diag .summary { color: var(--muted); font-size: .9rem; }
 .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; margin: 10px 6px 0 0; border-radius: 999px; font-size: .74rem; font-weight: 600; color: #F1E3C4; background: rgba(212,168,83,.1); border: 1px solid rgba(227,192,122,.28); }
 .chip.good { color: #A7F3D0; background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.3); }

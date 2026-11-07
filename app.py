@@ -209,6 +209,7 @@ if answer:
   {confidence_ring(conf)}
   <div><div class="k">Probable root cause</div><div class="cause">{esc(answer.get("probable_cause", ""))}</div>
   {"" if ss.baseline else f'<div class="summary">{esc(answer.get("summary", ""))}</div>'}
+  <div class="basis">{esc(answer.get("confidence_basis", ""))}</div>
   <div>{chips}<span class="chip">ETA ~{esc(answer.get("estimated_minutes", "?"))} min</span></div></div>
 </div>""")
         steps = "".join(f'<div class="step"><div class="n">{i + 1:02d}</div><div>{esc(s)}</div></div>'

@@ -29,7 +29,12 @@ from memory. Reply ONLY with JSON in exactly this shape:
 }
 Rules:
 - Never invent incidents. Only cite incident_id values that appear in PAST INCIDENTS.
-- Confidence must come from evidence: more matching incidents whose fix WORKED = higher.
+- Confidence must come from evidence. Use this scale:
+  * 3 or more past incidents with the SAME root cause whose fix WORKED -> 90 to 98
+  * 2 such incidents -> 75 to 89
+  * 1 such incident -> 55 to 74
+  * only loosely related incidents -> 31 to 54
+- Cite EVERY past incident that shares the root cause in evidence, not just one.
 - If PAST INCIDENTS is empty or nothing truly matches: evidence = [], confidence <= 30,
   and summary must start with "No similar incident in memory".
 - estimated_minutes: base it on the resolve times of matching incidents (recent ones count more).
@@ -73,7 +78,33 @@ def analyse(error_text, use_memory=True):
     # Safety net: drop any incident the model cited that memory did not recall.
     recalled_ids = {m["incident_id"] for m in matches}
     answer["evidence"] = [e for e in answer.get("evidence", []) if e.get("incident_id") in recalled_ids]
+    answer["confidence"], answer["confidence_basis"] = calibrate(answer)
     return answer, matches
+
+
+def calibrate(answer):
+    """Ground the confidence in what memory proves, using the same scale as the prompt.
+
+    Counts the cited past incidents whose fix actually worked. Repeat outages with a
+    proven fix earn high confidence; anything unproven is capped low.
+    """
+    cited = [get_incident(e["incident_id"]) for e in answer.get("evidence", [])]
+    cited = [c for c in cited if c]
+    proven = sum(1 for c in cited if c["fix_successful"])
+    model = int(answer.get("confidence", 0) or 0)
+    if proven >= 3:
+        conf = max(model, min(98, 88 + 2 * proven))
+    elif proven == 2:
+        conf = min(max(model, 75), 89)
+    elif proven == 1:
+        conf = min(max(model, 55), 74)
+    else:
+        conf = min(model, 30)
+    if not cited:
+        basis = "No matching incident in memory"
+    else:
+        basis = f"{proven} of {len(cited)} matching past incidents were fixed this way"
+    return conf, basis
 
 
 def write_postmortem(error_text, answer):
