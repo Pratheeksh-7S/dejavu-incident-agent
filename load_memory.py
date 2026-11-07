@@ -3,8 +3,9 @@
 The free Groq tier allows about 8,000 tokens per minute, and reading one
 incident uses about 5,000, so we go slowly: one incident every ~40 seconds.
 Re-running is safe: each incident has a fixed document_id, so it is updated,
-not duplicated.
+not duplicated. To continue from a later incident: python load_memory.py 11
 """
+import sys
 import time
 
 from memory import load_incidents, save_incident, setup_bank
@@ -13,7 +14,8 @@ WAIT_BETWEEN = 40  # seconds between incidents (free tier limit)
 WAIT_RETRY = 30    # seconds to wait when the free tier says "slow down"
 
 setup_bank()
-incidents = load_incidents()
+START_ID = int(sys.argv[1]) if len(sys.argv) > 1 else 1
+incidents = [inc for inc in load_incidents() if inc["id"] >= START_ID]
 print(f"Teaching DejaVu {len(incidents)} past incidents (about 15 minutes on the free tier)...\n")
 
 failed = []
