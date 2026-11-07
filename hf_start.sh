@@ -4,8 +4,15 @@ export HINDSIGHT_API_LLM_API_KEY="${HINDSIGHT_API_LLM_API_KEY:-$GROQ_API_KEY}"
 
 hindsight-api > memory_server.log 2>&1 &
 echo "Starting Hindsight memory server..."
-until curl -sf http://localhost:8888/health > /dev/null; do sleep 3; done
-echo "Memory server is up."
+for i in $(seq 1 100); do   # first boot downloads models, so allow ~5 minutes
+  curl -sf http://localhost:8888/health > /dev/null && break
+  sleep 3
+done
+if curl -sf http://localhost:8888/health > /dev/null; then
+  echo "Memory server is up."
+else
+  echo "Memory server did not start. Last log lines:"; tail -n 40 memory_server.log
+fi
 
 # A fresh container has an empty memory, so teach it the history (about 15 min on Groq free tier).
 python load_memory.py > load_memory.log 2>&1 &
