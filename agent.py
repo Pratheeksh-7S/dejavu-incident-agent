@@ -15,7 +15,6 @@ load_dotenv()
 
 MODEL = "openai/gpt-oss-120b"
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-INCIDENTS = {inc["id"]: inc for inc in load_incidents()}
 
 SYSTEM_PROMPT = """You are DejaVu, an incident-response assistant with long-term memory
 of past production incidents. You receive a NEW error plus PAST incidents recalled
@@ -37,8 +36,13 @@ Rules:
 """
 
 
+def get_incident(incident_id):
+    """Look up the full record of an incident (including ones learned live)."""
+    return next((inc for inc in load_incidents() if inc["id"] == incident_id), None)
+
+
 def describe(incident_id):
-    inc = INCIDENTS.get(incident_id)
+    inc = get_incident(incident_id)
     if not inc:
         return None
     return (
@@ -70,6 +74,22 @@ def analyse(error_text, use_memory=True):
     recalled_ids = {m["incident_id"] for m in matches}
     answer["evidence"] = [e for e in answer.get("evidence", []) if e.get("incident_id") in recalled_ids]
     return answer, matches
+
+
+def write_postmortem(error_text, answer):
+    """Write a short blameless postmortem for a resolved incident."""
+    reply = client.chat.completions.create(
+        model=MODEL,
+        messages=[
+            {"role": "system", "content": (
+                "You write short blameless incident postmortems in Markdown with exactly these "
+                "sections: ### Summary, ### Timeline, ### Root cause, ### Fix, ### Prevention. "
+                "Max 160 words. Use bullet points.")},
+            {"role": "user", "content": f"Error: {error_text}\n\nAnalysis: {json.dumps(answer)}"},
+        ],
+        temperature=0.3,
+    )
+    return reply.choices[0].message.content
 
 
 if __name__ == "__main__":
