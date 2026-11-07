@@ -4,9 +4,9 @@ Hindsight is DejaVu's long-term memory:
 - save_incident()  -> RETAIN: store a past incident (error, cause, fix, outcome)
 - recall_similar() -> RECALL: find past incidents that look like a new error
 """
-import atexit
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,8 +18,22 @@ BANK_ID = "dejavu-incidents"
 DATA_FILE = Path(__file__).parent / "incidents.json"
 LEARNED_FILE = Path(__file__).parent / "learned_incidents.json"  # new incidents learned live
 
-client = Hindsight(base_url=os.getenv("HINDSIGHT_BASE_URL", "http://localhost:8888"))
-atexit.register(client.close)  # close the connection cleanly when the program ends
+BASE_URL = os.getenv("HINDSIGHT_BASE_URL", "http://localhost:8888")
+
+
+@contextmanager
+def memory_client():
+    """Open a Hindsight connection for one operation, then close it.
+
+    Streamlit runs every click in a new thread with its own event loop, so one
+    shared client breaks ("Timeout context manager should be used inside a task").
+    A short-lived client per call works everywhere: scripts and the web app.
+    """
+    client = Hindsight(base_url=BASE_URL)
+    try:
+        yield client
+    finally:
+        client.close()
 
 
 def load_incidents():
@@ -57,27 +71,29 @@ def incident_to_text(inc):
 
 def setup_bank():
     """Create the memory bank and tell it what it is for."""
-    client.create_bank(
-        bank_id=BANK_ID,
-        name="DejaVu incident memory",
-        mission=(
-            "Remember every production incident: the error signature, the root cause, "
-            "the exact fix and whether it worked, so future outages are solved faster."
-        ),
-    )
+    with memory_client() as client:
+        client.create_bank(
+            bank_id=BANK_ID,
+            name="DejaVu incident memory",
+            mission=(
+                "Remember every production incident: the error signature, the root cause, "
+                "the exact fix and whether it worked, so future outages are solved faster."
+            ),
+        )
 
 
 def save_incident(inc, background=False):
     """RETAIN one incident in Hindsight memory."""
-    client.retain(
-        bank_id=BANK_ID,
-        content=incident_to_text(inc),
-        context="past production incident and how it was resolved",
-        timestamp=inc["occurred_at"],
-        document_id=f"incident-{inc['id']}",
-        metadata={"incident_id": str(inc["id"]), "service": inc["service"]},
-        retain_async=background,
-    )
+    with memory_client() as client:
+        client.retain(
+            bank_id=BANK_ID,
+            content=incident_to_text(inc),
+            context="past production incident and how it was resolved",
+            timestamp=inc["occurred_at"],
+            document_id=f"incident-{inc['id']}",
+            metadata={"incident_id": str(inc["id"]), "service": inc["service"]},
+            retain_async=background,
+        )
 
 
 def recall_similar(error_text, max_incidents=5):
@@ -87,7 +103,8 @@ def recall_similar(error_text, max_incidents=5):
     [{"incident_id": 12, "match": 0.91, "facts": ["...", "..."]}, ...]
     "match" is Hindsight's relevance score (0 to 1) for the best fact of that incident.
     """
-    response = client.recall(bank_id=BANK_ID, query=error_text, budget="mid")
+    with memory_client() as client:
+        response = client.recall(bank_id=BANK_ID, query=error_text, budget="mid")
     matches = {}
     for fact in response.results:
         incident_id = (fact.metadata or {}).get("incident_id")
