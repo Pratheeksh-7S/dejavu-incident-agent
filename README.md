@@ -37,7 +37,7 @@ Hindsight is the core of DejaVu, not an add-on. All memory logic lives in [`memo
 | `retain(retain_async=True)` | `learn_new_incident()` | **Live learning.** When the engineer confirms a fix in the UI, the new incident is retained in the background, so the app never freezes. |
 | `recall` | `recall_similar()` | Finds past incidents similar to a new error. Facts are grouped per incident and ranked by the **reranker relevance score**, not recency, so an old but identical outage still wins. |
 
-**Why this matters:** the cache-invalidation bug appears 6 times in our history, on 4 different services, with 6 different error messages (`KeyError`, `TypeError`, HTTP 500, expired tokens...). Keyword search can't connect them. Hindsight's semantic recall does. That's what lets DejaVu say *"Seen this 5 times; this fix worked every time"*.
+**Why this matters:** the cache-invalidation bug appears 6 times in our history, on 3 different services, with 6 different error messages (`KeyError`, `TypeError`, HTTP 500, expired tokens...). Keyword search can't connect them. Hindsight's semantic recall does. That's what lets DejaVu say *"Seen this 5 times; this fix worked every time"*.
 
 ### Confidence you can trust
 
@@ -71,13 +71,27 @@ flowchart LR
 ## Features
 
 - **Live memory map:** every past incident is a dot (size = minutes to fix), clustered by failure type. When DejaVu recalls incidents, they light up and links draw out to them.
-- **Before vs after:** run the same agent *without* memory and *with* Hindsight memory side by side (for example, 22% vs 98% confidence).
+- **Before vs after:** run the same agent *without* memory and *with* Hindsight memory side by side and watch confidence jump (98% with memory on our cache outage).
 - **Cited fix plans:** every claim links to a real recalled incident, with the reason it matches.
 - **One-click learning:** confirm a fix and it becomes a memory, with confetti and a new green dot on the map.
 - **Postmortem writer:** a blameless Markdown postmortem in one click, downloadable.
 - **Learning curve:** time-to-fix per incident, with failed fixes marked separately.
 - **Outage simulator:** realistic alerts (cache KeyError, DB connection exhaustion, auth 429, queue backlog, OOM) for a live demo.
 - **Premium UI:** black and champagne-gold theme, GSAP animations (bundled locally, so it works offline), works on desktop and phone, respects reduced-motion settings.
+
+---
+
+## Built with Band
+
+We used the **Band AI desktop app** while building DejaVu. A Claude Code agent in a Band room wrote the automated test suite (`tests/`, 35 pytest tests for confidence calibration and memory recall, with Hindsight mocked). The tests caught a real bug: confidence could reach 100% when the model said 100, breaking the 90–98 scale. It is now capped at 98.
+
+![Band agent writing DejaVu's tests](docs/band.png)
+
+Run the tests yourself:
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests -q
+```
 
 ---
 
@@ -138,11 +152,12 @@ app.py              Streamlit dashboard (hero, console, diagnosis, learning curv
 ui.py               HTML building blocks: memory map (SVG), confidence ring, theme loader
 agent.py            Agent brain: recall -> GPT-OSS reasoning -> calibrated confidence, postmortems
 memory.py           Hindsight layer: create bank, retain, recall, live learning
-incidents.json      20 historical incidents (4 services, 6 repeats of one cache bug)
+incidents.json      20 historical incidents (4 services, 6 repeats of one cache bug on 3 services)
 load_memory.py      One-time loader with free-tier rate limiting
 test_recall.py      Quick recall check from the terminal
 start_memory.py     Starts the local Hindsight server with settings from .env
 check_groq.py       Checks the Groq key works
+tests/              Pytest suite (written by a Band agent)
 style.css           Premium black and gold theme
 motion.js           GSAP motion engine (reveals, count-ups, magnetic buttons, parallax)
 vendor/gsap.min.js  GSAP 3.12.5, bundled for offline demos
